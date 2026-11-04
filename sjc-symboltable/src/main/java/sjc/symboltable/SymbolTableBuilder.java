@@ -116,32 +116,77 @@ public class SymbolTableBuilder {
 
     @Override
     public boolean visit(final FieldDeclaration node) {
-      // TODO
+      final VariableDeclarationFragment vdf = (VariableDeclarationFragment) node.fragments().get(0);
+      final String name = vdf.getName().getIdentifier();
+      if (hasPublicModifier(node.modifiers())) {
+        final Pair<String, String> key = new Pair<>(this.className, name);
+        if (this.fieldMap.containsKey(key)) {
+          throw new Error(node, "Field " + name + " is already declared in class "
+              + this.className);
+        }
+        this.fieldMap.put(key, node);
+      } else {
+        if (this.nameMap.containsKey(name)) {
+          throw new Error(node, "Field " + name + " is already declared");
+        }
+        this.nameMap.put(name, node);
+      }
       return false;
     }
 
     @Override
     public boolean visit(final MethodDeclaration node) {
-      // TODO
+      final Map<String, ASTNode> savedNames = new HashMap<>(this.nameMap);
+      this.localNames.clear();
+      for (final Object o : node.parameters()) {
+        final SingleVariableDeclaration svd = (SingleVariableDeclaration)o;
+        declareLocal(svd.getName().getIdentifier(), svd);
+      }
+      node.getBody().accept(this);
+      this.nameMap = savedNames;
       return false;
     }
 
     @Override
     public boolean visit(final MethodInvocation node) {
-      // TODO
+      final Expression e = node.getExpression();
+      if((e == null) || this.className.equals(e.toString())) {
+        final String name = node.getName().getIdentifier();
+        final MethodDeclaration md = this.methodMap.get(name);
+        if (md == null) {
+          throw new Error(node, "Method " + name + " is not declared");
+        }
+        this.result.put(node, md);
+      }
+      for(final Object o : node.arguments()) {
+        ((ASTNode) o).accept(this);
+      }
       return false;
     }
 
     @Override
     public boolean visit(final SimpleName node) {
-      // TODO
+      final String name = node.getIdentifier();
+      final ASTNode decl = this.nameMap.get(name);
+      if (decl == null) {
+        throw new Error(node, "Variable " + name + " is not declared");
+      }
+      this.result.put(node, decl);
       return false;
     }
 
     @Override
     public boolean visit(final VariableDeclarationStatement node) {
-      // TODO
+      final VariableDeclarationFragment vdf = (VariableDeclarationFragment) node.fragments().get(0);
+      declareLocal(vdf.getName().getIdentifier(), node);
       return false;
+    }
+
+    private void declareLocal(final String name, final ASTNode decl) {
+      if(!this.localNames.add(name)) {
+        throw new Error(decl, "Variable " + name + " is already declared");
+      }
+      this.nameMap.put(name, decl);
     }
 
     @Override
@@ -177,7 +222,32 @@ public class SymbolTableBuilder {
 
     @Override
     public boolean visit(final TypeDeclaration node) {
-      // TODO
+      this.className = node.getName().getIdentifier();
+      if(!hasPublicModifier(node.modifiers())) {
+        if(this.classMap.containsKey(this.className)) {
+          throw new Error(node, "Class " + this.className
+              + " is already declared");
+        }
+        this.classMap.put(this.className, node);
+      }
+      for(final Object o : node.bodyDeclarations()) {
+        if(o instanceof FieldDeclaration) {
+          ((ASTNode) o).accept(this);
+        } 
+        else if(o instanceof MethodDeclaration) {
+          final MethodDeclaration md = (MethodDeclaration) o;
+          final String name = md.getName().getIdentifier();
+          if(this.methodMap.containsKey(name)) {
+            throw new Error(md, "Method " + name + " is already declared");
+          }
+          this.methodMap.put(name, md);
+        }
+      }
+      for(final Object o : node.bodyDeclarations()) {
+        if(o instanceof MethodDeclaration) {
+          ((ASTNode) o).accept(this);
+        }
+      }
       return false;
     }
   }
